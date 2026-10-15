@@ -74,6 +74,19 @@ button:disabled {
   word-break: break-all;
 }
 
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+th,
+td {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+
 .result-score {
   font-size: 2em;
   font-weight: bold;

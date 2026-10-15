@@ -225,6 +225,41 @@ function showResult() {
   showScreen("result");
 }
 
+function renderLeaderboard() {
+  const board = loadLeaderboard();
+  const container = document.getElementById("leaderboard-list");
+  container.replaceChildren();
+  for (const mode of ["speed", "hint"]) {
+    for (const category of CATEGORIES) {
+      const title = document.createElement("h3");
+      title.textContent = `${MODES[mode].name} ${category}`;
+      container.appendChild(title);
+      const list = board[`${mode}|${category}`];
+      if (!Array.isArray(list) || list.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "note";
+        empty.textContent = "기록 없음";
+        container.appendChild(empty);
+        continue;
+      }
+      const table = document.createElement("table");
+      const head = table.insertRow();
+      for (const label of ["순위", "날짜", "점수"]) {
+        const th = document.createElement("th");
+        th.textContent = label;
+        head.appendChild(th);
+      }
+      list.forEach((item, i) => {
+        const row = table.insertRow();
+        row.insertCell().textContent = `${i + 1}`;
+        row.insertCell().textContent = item.date;
+        row.insertCell().textContent = item.score;
+      });
+      container.appendChild(table);
+    }
+  }
+}
+
 function retryWrong() {
   if (state.firstScore === null) {
     state.firstScore = { score: state.score, total: state.questions.length };
@@ -249,6 +284,11 @@ function init() {
     stopTimer();
     showScreen("start");
   });
+  document.getElementById("leaderboard-button").addEventListener("click", () => {
+    renderLeaderboard();
+    showScreen("leaderboard");
+  });
+  document.getElementById("leaderboard-home-button").addEventListener("click", () => showScreen("start"));
   showScreen("start");
 }
 
