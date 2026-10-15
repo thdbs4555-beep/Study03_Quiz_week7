@@ -6,6 +6,9 @@ const MODES = {
   hint:  { name: "힌트",   timeLimit: 0,  hintCount: 1, hintScore: 0.5,  leaderboard: true, retry: false },
 };
 
+const LEADERBOARD_KEY = "quiz-leaderboard";
+const CATEGORIES = ["한국사", "세계지리", "과학", "예술과 문화"];
+
 const state = {
   category: null, mode: "practice", questions: [], index: 0, score: 0,
   hintUsed: false, wrong: [], secondsLeft: 0,
@@ -34,6 +37,51 @@ function scoreFor(correct, hintUsed, mode) {
 
 function formatScore(score, total) {
   return `${score}/${total}`;
+}
+
+function todayString(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function parseLeaderboard(text) {
+  if (text === null || text === undefined) return {};
+  try {
+    const value = JSON.parse(text);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+    return value;
+  } catch (e) {
+    return {};
+  }
+}
+
+function loadLeaderboard() {
+  try {
+    return parseLeaderboard(localStorage.getItem(LEADERBOARD_KEY));
+  } catch (e) {
+    return {};
+  }
+}
+
+function insertScore(list, entry) {
+  const index = list.filter(item => item.score >= entry.score).length;
+  const next = [...list.slice(0, index), entry, ...list.slice(index)].slice(0, 10);
+  return { list: next, rank: index < 10 ? index + 1 : null };
+}
+
+function recordScore(mode, category, score, date = todayString()) {
+  const board = loadLeaderboard();
+  const key = `${mode}|${category}`;
+  const list = Array.isArray(board[key]) ? board[key] : [];
+  const result = insertScore(list, { date, score });
+  board[key] = result.list;
+  try {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(board));
+  } catch (e) {
+    return { saved: false, rank: null };
+  }
+  return { saved: true, rank: result.rank };
 }
 
 function startCategory(category) {
@@ -164,8 +212,52 @@ function showResult() {
     document.getElementById("result-score").textContent = `다시 푼 점수 ${score}`;
   }
   document.getElementById("result-note").hidden = MODES[state.mode].leaderboard;
+  const rank = document.getElementById("result-rank");
+  rank.hidden = true;
+  if (state.firstScore === null && MODES[state.mode].leaderboard) {
+    const recorded = recordScore(state.mode, state.category, state.score);
+    if (!recorded.saved) rank.textContent = "순위표를 저장할 수 없음";
+    else if (recorded.rank === null) rank.textContent = "상위 10위 밖";
+    else rank.textContent = `이번 점수는 ${recorded.rank}위`;
+    rank.hidden = false;
+  }
   document.getElementById("retry-button").hidden = !(MODES[state.mode].retry && state.wrong.length > 0);
   showScreen("result");
+}
+
+function renderLeaderboard() {
+  const board = loadLeaderboard();
+  const container = document.getElementById("leaderboard-list");
+  container.replaceChildren();
+  for (const mode of ["speed", "hint"]) {
+    for (const category of CATEGORIES) {
+      const title = document.createElement("h3");
+      title.textContent = `${MODES[mode].name} ${category}`;
+      container.appendChild(title);
+      const list = board[`${mode}|${category}`];
+      if (!Array.isArray(list) || list.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "note";
+        empty.textContent = "기록 없음";
+        container.appendChild(empty);
+        continue;
+      }
+      const table = document.createElement("table");
+      const head = table.insertRow();
+      for (const label of ["순위", "날짜", "점수"]) {
+        const th = document.createElement("th");
+        th.textContent = label;
+        head.appendChild(th);
+      }
+      list.forEach((item, i) => {
+        const row = table.insertRow();
+        row.insertCell().textContent = `${i + 1}`;
+        row.insertCell().textContent = item.date;
+        row.insertCell().textContent = item.score;
+      });
+      container.appendChild(table);
+    }
+  }
 }
 
 function retryWrong() {
@@ -192,6 +284,11 @@ function init() {
     stopTimer();
     showScreen("start");
   });
+  document.getElementById("leaderboard-button").addEventListener("click", () => {
+    renderLeaderboard();
+    showScreen("leaderboard");
+  });
+  document.getElementById("leaderboard-home-button").addEventListener("click", () => showScreen("start"));
   showScreen("start");
 }
 
@@ -225,6 +322,25 @@ function runSelfTests() {
     const picked = pickHintChoices(["가", "나", "다", "라"], "나");
     return picked.length === 2 && !picked.includes("나") && new Set(picked).size === 2 &&
       picked.every(c => ["가", "다", "라"].includes(c));
+  });
+  check("저장값 해석: 없거나 깨지거나 객체가 아니면 빈 순위표", () =>
+    [null, "{", "[]", "\"x\"", "null"].every(t => JSON.stringify(parseLeaderboard(t)) === "{}"));
+  check("날짜: 로컬 날짜, 두 자리 채움", () =>
+    todayString(new Date(2026, 9, 9, 8, 30)) === "2026-10-09" && todayString(new Date(2026, 0, 5)) === "2026-01-05");
+  check("순위표: 11개를 넣어도 10개만 남음", () => {
+    let list = [];
+    for (let i = 0; i <= 10; i++) list = insertScore(list, { date: "2026-10-09", score: i }).list;
+    return list.length === 10 && list[0].score === 10 && list[9].score === 1;
+  });
+  check("순위표: 동점이면 먼저 기록한 점수가 위", () => {
+    let list = insertScore([], { date: "2026-10-01", score: 5 }).list;
+    const r = insertScore(list, { date: "2026-10-02", score: 5 });
+    return r.rank === 2 && r.list[0].date === "2026-10-01";
+  });
+  check("순위표: 10위 밖이면 rank가 null", () => {
+    const full = Array.from({ length: 10 }, () => ({ date: "2026-10-09", score: 9 }));
+    const r = insertScore(full, { date: "2026-10-09", score: 3 });
+    return r.rank === null && r.list.length === 10;
   });
   // 태스크마다 여기에 check(...)를 더함
   const failed = results.filter(ok => !ok).length;
